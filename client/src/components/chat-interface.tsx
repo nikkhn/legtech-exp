@@ -22,7 +22,6 @@ export function ChatInterface() {
 
     try {
       setIsLoading(true);
-      // Explicitly type the userMessage as Message
       const userMessage: Message = { role: "user", content: input };
       setMessages((prev) => [...prev, userMessage]);
       setInput("");
@@ -56,6 +55,11 @@ export function ChatInterface() {
     <div className="flex flex-col h-[600px] gap-4">
       <ScrollArea className="flex-1 p-4 border rounded-lg">
         <div className="flex flex-col gap-4">
+          {messages.length === 0 && (
+            <div className="text-center text-muted-foreground p-4">
+              Start your policy brief creation journey by describing the policy issue you'd like to address.
+            </div>
+          )}
           {messages.map((msg, i) => (
             <Card
               key={i}
@@ -65,9 +69,19 @@ export function ChatInterface() {
                   : "bg-primary text-primary-foreground"
               }`}
             >
-              {msg.content}
+              <div className="flex items-start gap-2">
+                <div className="text-sm font-semibold mb-1">
+                  {msg.role === "assistant" ? "Policy Advisor" : "You"}:
+                </div>
+                <div className="flex-1 whitespace-pre-wrap">{msg.content}</div>
+              </div>
             </Card>
           ))}
+          {isLoading && (
+            <Card className="p-4 bg-secondary">
+              <div className="animate-pulse">Policy Advisor is typing...</div>
+            </Card>
+          )}
         </div>
       </ScrollArea>
 
@@ -75,7 +89,7 @@ export function ChatInterface() {
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Type your message..."
+          placeholder="Type your response..."
           className="flex-1"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
