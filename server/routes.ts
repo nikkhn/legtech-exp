@@ -1,9 +1,15 @@
 import type { Express } from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import OpenAI from "openai";
 import { db } from "@db";
 import { policyBriefs, briefCollaborators, briefComments } from "@db/schema";
 import { eq, and } from "drizzle-orm";
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 interface BriefUpdate {
   type: "update" | "comment";
@@ -32,7 +38,7 @@ export function registerRoutes(app: Express) {
         }
 
         // Broadcast to all clients viewing this brief
-        for (const [client, data] of clients.entries()) {
+        for (const [client, data] of Array.from(clients.entries())) {
           if (data.briefId === update.briefId && client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(update));
           }
@@ -45,6 +51,38 @@ export function registerRoutes(app: Express) {
     ws.on("close", () => {
       clients.delete(ws);
     });
+  });
+
+  // Chat endpoint for policy brief guidance
+  app.post("/api/chat", async (req, res) => {
+    try {
+      const { messages } = req.body;
+
+      // Add system message to guide the AI
+      const systemMessage = {
+        role: "system",
+        content: `You are an expert policy advisor helping to draft a policy brief. Guide the user through creating a comprehensive policy brief by:
+1. Understanding the policy issue or problem
+2. Gathering relevant background information
+3. Exploring potential policy options
+4. Developing specific recommendations
+5. Considering implementation strategies
+
+Ask focused questions to help the user develop each section. Be concise and professional.`
+      };
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [systemMessage, ...messages],
+        temperature: 0.7,
+        max_tokens: 500,
+      });
+
+      res.json({ message: completion.choices[0].message.content });
+    } catch (error) {
+      console.error("Chat API error:", error);
+      res.status(500).json({ error: "Failed to process chat request" });
+    }
   });
 
   // Get all briefs
