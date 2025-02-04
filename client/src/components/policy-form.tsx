@@ -45,9 +45,9 @@ export function PolicyForm({
   const currentField = sections[currentSection];
 
   const next = async () => {
-    const isValid = await form.trigger(currentField.field);
-    if (isValid) {
-      if (currentSection < sections.length - 1) {
+    if (currentSection < sections.length - 1) {
+      const isValid = await form.trigger(currentField.field);
+      if (isValid) {
         setCurrentSection(currentSection + 1);
       }
     }
@@ -59,10 +59,12 @@ export function PolicyForm({
     }
   };
 
+  const isLastSection = currentSection === sections.length - 1;
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-        <div className="flex gap-4 mb-8">
+        <div className="flex gap-4 mb-8 flex-wrap">
           {sections.map((section, index) => (
             <Button
               key={section.field}
@@ -112,13 +114,14 @@ export function PolicyForm({
               >
                 Save Progress
               </Button>
-              <Button
-                type="button"
-                onClick={next}
-                disabled={currentSection === sections.length - 1}
-              >
-                Next
-              </Button>
+              {!isLastSection && (
+                <Button
+                  type="button"
+                  onClick={next}
+                >
+                  Next
+                </Button>
+              )}
             </div>
           </CardFooter>
         </Card>
