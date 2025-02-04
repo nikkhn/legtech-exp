@@ -19,11 +19,47 @@ export class KnowledgeBase {
   private initialized = false;
   private visitedUrls = new Set<string>();
   private baseUrl = 'https://artificialintelligenceact.eu';
+private usCodeContent: string[] = [];
+
+private async processUSCodeZip(zipPath: string) {
+  const zip = require('adm-zip');
+  const xmlParser = require('fast-xml-parser');
+
+  try {
+    const zipFile = new zip(zipPath);
+    const zipEntries = zipFile.getEntries();
+
+    for (const entry of zipEntries) {
+      if (entry.entryName.endsWith('.xml')) {
+        const content = entry.getData().toString('utf8');
+        const result = xmlParser.parse(content);
+        
+        // Extract text content from XML structure
+        // Adjust this based on the actual XML structure
+        const extractedText = JSON.stringify(result, null, 2);
+        this.usCodeContent.push(extractedText);
+      }
+    }
+
+    // Generate embeddings for US Code content
+    for (const content of this.usCodeContent) {
+      const embedding = await this.generateEmbedding(content);
+      this.documents.push({
+        content: content,
+        url: 'US Code',
+        embedding: embedding
+      });
+    }
+  } catch (error) {
+    console.error('Error processing US Code ZIP:', error);
+  }
+}
 
   async initialize() {
     if (this.initialized) return;
 
     try {
+      await this.processUSCodeZip('attached_assets/xml_uscAll@118-250not159 2.zip');
       // Try to load cached documents
       const cached = await fs.readFile(path.join(process.cwd(), 'cached-knowledge.json'), 'utf-8');
       this.documents = JSON.parse(cached);
