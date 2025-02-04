@@ -10,12 +10,15 @@ const openai = new OpenAI({
 
 interface Document {
   content: string;
+  url: string;
   embedding: number[];
 }
 
 export class KnowledgeBase {
   private documents: Document[] = [];
   private initialized = false;
+  private visitedUrls = new Set<string>();
+  private baseUrl = 'https://artificialintelligenceact.eu';
 
   async initialize() {
     if (this.initialized) return;
@@ -33,7 +36,28 @@ export class KnowledgeBase {
 
   private async fetchAndProcessContent() {
     try {
-      const response = await fetch('https://artificialintelligenceact.eu/');
+      await this.crawlPage(this.baseUrl);
+
+      // Cache the processed documents
+      await fs.writeFile(
+        path.join(process.cwd(), 'cached-knowledge.json'),
+        JSON.stringify(this.documents)
+      );
+
+      this.initialized = true;
+    } catch (error) {
+      console.error('Error processing knowledge base:', error);
+      throw error;
+    }
+  }
+
+  private async crawlPage(url: string) {
+    if (this.visitedUrls.has(url)) return;
+    this.visitedUrls.add(url);
+
+    try {
+      console.log(`Crawling: ${url}`);
+      const response = await fetch(url);
       const html = await response.text();
       const $ = cheerio.load(html);
 
@@ -50,21 +74,45 @@ export class KnowledgeBase {
         const embedding = await this.generateEmbedding(chunk);
         this.documents.push({
           content: chunk,
+          url: url,
           embedding: embedding
         });
       }
 
-      // Cache the processed documents
-      await fs.writeFile(
-        path.join(process.cwd(), 'cached-knowledge.json'),
-        JSON.stringify(this.documents)
-      );
+      // Find all links on the page
+      const links = $('a')
+        .map((_, el) => $(el).attr('href'))
+        .get()
+        .filter(href => href && this.isValidUrl(href))
+        .map(href => this.resolveUrl(href, url));
 
-      this.initialized = true;
+      // Recursively crawl each link
+      for (const link of links) {
+        if (!this.visitedUrls.has(link)) {
+          await this.crawlPage(link);
+        }
+      }
     } catch (error) {
-      console.error('Error processing knowledge base:', error);
-      throw error;
+      console.error(`Error crawling ${url}:`, error);
     }
+  }
+
+  private isValidUrl(href: string): boolean {
+    if (!href) return false;
+
+    // Ignore anchors, external links, and non-http(s) protocols
+    return (
+      !href.startsWith('#') &&
+      !href.startsWith('mailto:') &&
+      !href.startsWith('tel:') &&
+      (href.startsWith('/') || href.startsWith(this.baseUrl))
+    );
+  }
+
+  private resolveUrl(href: string, baseUrl: string): string {
+    if (href.startsWith('http')) return href;
+    if (href.startsWith('/')) return `${this.baseUrl}${href}`;
+    return new URL(href, baseUrl).toString();
   }
 
   private chunkText(text: string, chunkSize: number): string[] {
@@ -99,7 +147,7 @@ export class KnowledgeBase {
     return response.data[0].embedding;
   }
 
-  async getRelevantContext(query: string, maxResults: number = 2): Promise<string> {
+  async getRelevantContext(query: string, maxResults: number = 3): Promise<string> {
     await this.initialize();
 
     const queryEmbedding = await this.generateEmbedding(query);
@@ -107,6 +155,7 @@ export class KnowledgeBase {
     // Calculate cosine similarity with all documents
     const similarities = this.documents.map((doc) => ({
       content: doc.content,
+      url: doc.url,
       similarity: this.cosineSimilarity(queryEmbedding, doc.embedding)
     }));
 
@@ -114,7 +163,7 @@ export class KnowledgeBase {
     similarities.sort((a, b) => b.similarity - a.similarity);
     const topResults = similarities.slice(0, maxResults);
 
-    return topResults.map(r => r.content).join('\n\n');
+    return topResults.map(r => `From ${r.url}:\n${r.content}`).join('\n\n');
   }
 
   private cosineSimilarity(embedding1: number[], embedding2: number[]): number {
