@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { db } from "@db";
 import { policyBriefs, briefCollaborators, briefComments } from "@db/schema";
 import { eq, and } from "drizzle-orm";
+import { knowledgeBase } from "./utils/knowledge-base";
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -19,7 +20,7 @@ interface BriefUpdate {
 
 export function registerRoutes(app: Express) {
   const httpServer = createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
   const clients = new Map<WebSocket, { briefId: number }>();
 
@@ -39,7 +40,10 @@ export function registerRoutes(app: Express) {
 
         // Broadcast to all clients viewing this brief
         for (const [client, data] of Array.from(clients.entries())) {
-          if (data.briefId === update.briefId && client.readyState === WebSocket.OPEN) {
+          if (
+            data.briefId === update.briefId &&
+            client.readyState === WebSocket.OPEN
+          ) {
             client.send(JSON.stringify(update));
           }
         }
@@ -58,15 +62,27 @@ export function registerRoutes(app: Express) {
     try {
       const { messages } = req.body;
 
+      // Get the latest user message
+      const latestUserMessage = messages[messages.length - 1].content;
+
+      // Retrieve relevant context about AI Act if the message seems related
+      let relevantContext = '';
+      if (latestUserMessage.toLowerCase().includes('ai') || 
+          latestUserMessage.toLowerCase().includes('artificial intelligence') ||
+          latestUserMessage.toLowerCase().includes('regulation')) {
+        relevantContext = await knowledgeBase.getRelevantContext(latestUserMessage);
+      }
+
       // Add system message to guide the AI
       const systemMessage = {
         role: "system",
-        content: `You are a policy ideation coach. Your role is to help users develop a comprehensive policy brief by guiding them through key questions and offering insightful suggestions.
-The user's first input will be: "Tell me about your policy idea." Once they share their idea, guide them through a structured process to refine their thoughts and draft a policy brief.
+        content: `
+You are a policy ideation wizard. Your role is to help users develop a comprehensive policy brief by asking them 1 question at a time, to come up with a policy brief.
+The user's first input will be: "Tell me about your policy idea." Once they share their ideas, ask them 1 question at a time to better understand the idea of their brief and ultimately create a brief for them at the end.
 I. Defining the Issue
-Ask the user to clearly define the issue they want to address.
+If the user has not clearly defined the issue they want to address, prompt them to do so.
 Emphasize that how an issue is framed significantly influences policy solutions.
-Encourage them to reflect on why the issue is important now (timing, context, urgency).
+If the user has not defined why the issue is important now (timing, context, urgency), ask them to do so.
 Ask whether legislative action is the best approach or if other mechanisms (e.g., courts, administrative actions, market solutions) may be more effective.
 If legislation is necessary, prompt them to define the core purpose and intent of their proposal.
 II. Research and Feasibility
@@ -102,7 +118,10 @@ Encourage the use of charts, tables, and graphs to present complex data simply.
 Recommend using rounded numbers instead of overly precise statistical details.
 Final Guidance
 Keep the process engaging and manageable—avoid overwhelming users with too many questions at once.
-Provide iterative guidance, allowing users to refine their brief step by step.`
+Provide iterative guidance, allowing users to refine their brief step by step.
+
+${relevantContext ? `\nRelevant context about AI regulation:\n${relevantContext}` : ''}
+`
       };
 
       const completion = await openai.chat.completions.create({
@@ -121,14 +140,17 @@ Provide iterative guidance, allowing users to refine their brief step by step.`
 
   // Get all briefs
   app.get("/api/briefs", async (_req, res) => {
-    const briefs = await db.select().from(policyBriefs).orderBy(policyBriefs.updatedAt);
+    const briefs = await db
+      .select()
+      .from(policyBriefs)
+      .orderBy(policyBriefs.updatedAt);
     res.json(briefs);
   });
 
   // Get single brief
   app.get("/api/briefs/:id", async (req, res) => {
     const brief = await db.query.policyBriefs.findFirst({
-      where: eq(policyBriefs.id, parseInt(req.params.id))
+      where: eq(policyBriefs.id, parseInt(req.params.id)),
     });
 
     if (!brief) {
@@ -167,8 +189,8 @@ Provide iterative guidance, allowing users to refine their brief step by step.`
     const existing = await db.query.briefCollaborators.findFirst({
       where: and(
         eq(briefCollaborators.briefId, briefId),
-        eq(briefCollaborators.email, email)
-      )
+        eq(briefCollaborators.email, email),
+      ),
     });
 
     if (existing) {
