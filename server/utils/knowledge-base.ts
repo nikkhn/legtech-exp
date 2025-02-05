@@ -15,11 +15,29 @@ interface Document {
 }
 
 export class KnowledgeBase {
-  private documents: Document[] = [];
+  private client: any;
+  private collection: any;
   private initialized = false;
   private visitedUrls = new Set<string>();
   private baseUrl = "https://artificialintelligenceact.eu";
   private usCodeContent: string[] = [];
+
+  constructor() {
+    const { ChromaClient } = require("chromadb");
+    this.client = new ChromaClient();
+    this.initializeChroma();
+  }
+
+  private async initializeChroma() {
+    try {
+      this.collection = await this.client.createCollection({
+        name: "us_code",
+        metadata: { "description": "US Code embeddings" }
+      });
+    } catch (error) {
+      console.error("Error initializing ChromaDB:", error);
+    }
+  }
 
   private async processUSCodeZip(zipPath: string) {
     const zip = require("adm-zip");
@@ -27,20 +45,8 @@ export class KnowledgeBase {
     const fs = require('fs/promises');
 
     try {
-      // Try to load from object storage first
-      try {
-        const storedData = await fs.readFile('us_code_data.json', 'utf8');
-        const parsedData = JSON.parse(storedData);
-        this.documents.push(...parsedData);
-        console.log("Loaded US Code data from storage");
-        return;
-      } catch (err) {
-        console.log("No stored US Code data found, processing from ZIP...");
-      }
-
       const zipFile = new zip(zipPath);
       const zipEntries = zipFile.getEntries();
-      const processedDocuments = [];
 
       for (const entry of zipEntries) {
         if (entry.entryName.endsWith(".xml")) {
@@ -48,21 +54,13 @@ export class KnowledgeBase {
           const result = xmlParser.parse(content);
           const extractedText = JSON.stringify(result, null, 2);
           this.usCodeContent.push(extractedText);
-          
+
           const embedding = await this.generateEmbedding(extractedText);
-          const document = {
-            content: extractedText,
-            url: "US Code",
-            embedding: embedding,
-          };
-          processedDocuments.push(document);
+          await this.collection.add([{id: entry.entryName, content: extractedText, embedding: embedding}]);
         }
       }
 
-      // Store processed documents
-      this.documents.push(...processedDocuments);
-      await fs.writeFile('us_code_data.json', JSON.stringify(processedDocuments));
-      console.log("US Code data processed and stored");
+      console.log("US Code data processed and stored in ChromaDB");
     } catch (error) {
       console.error("Error processing US Code ZIP:", error);
     }
@@ -76,12 +74,6 @@ export class KnowledgeBase {
         "attached_assets/xml_uscAll@118-250not159 2.zip",
       );
       console.log("processed US Code");
-      // Try to load cached documents
-      const cached = await fs.readFile(
-        path.join(process.cwd(), "cached-knowledge.json"),
-        "utf-8",
-      );
-      this.documents = JSON.parse(cached);
       this.initialized = true;
     } catch {
       // If cache doesn't exist, fetch and process the content
@@ -92,13 +84,6 @@ export class KnowledgeBase {
   private async fetchAndProcessContent() {
     try {
       await this.crawlPage(this.baseUrl);
-
-      // Cache the processed documents
-      await fs.writeFile(
-        path.join(process.cwd(), "cached-knowledge.json"),
-        JSON.stringify(this.documents),
-      );
-
       this.initialized = true;
     } catch (error) {
       console.error("Error processing knowledge base:", error);
@@ -127,11 +112,7 @@ export class KnowledgeBase {
       // Generate embeddings for each chunk
       for (const chunk of chunks) {
         const embedding = await this.generateEmbedding(chunk);
-        this.documents.push({
-          content: chunk,
-          url: url,
-          embedding: embedding,
-        });
+        await this.collection.add([{id: url, content: chunk, embedding: embedding}]);
       }
 
       // Find all links on the page
@@ -209,19 +190,15 @@ export class KnowledgeBase {
     await this.initialize();
 
     const queryEmbedding = await this.generateEmbedding(query);
-
-    // Calculate cosine similarity with all documents
-    const similarities = this.documents.map((doc) => ({
-      content: doc.content,
-      url: doc.url,
-      similarity: this.cosineSimilarity(queryEmbedding, doc.embedding),
-    }));
+    const results = await this.collection.get({
+      queryEmbeddings: [queryEmbedding],
+    });
 
     // Sort by similarity and get top results
-    similarities.sort((a, b) => b.similarity - a.similarity);
-    const topResults = similarities.slice(0, maxResults);
+    results.documents.sort((a, b) => b.score - a.score);
+    const topResults = results.documents.slice(0, maxResults);
 
-    return topResults.map((r) => `From ${r.url}:\n${r.content}`).join("\n\n");
+    return topResults.map((r) => `From ${r.metadata.url}:\n${r.content}`).join("\n\n");
   }
 
   private cosineSimilarity(embedding1: number[], embedding2: number[]): number {
