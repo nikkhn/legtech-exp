@@ -24,34 +24,45 @@ export class KnowledgeBase {
   private async processUSCodeZip(zipPath: string) {
     const zip = require("adm-zip");
     const xmlParser = require("fast-xml-parser");
+    const fs = require('fs/promises');
 
     try {
+      // Try to load from object storage first
+      try {
+        const storedData = await fs.readFile('us_code_data.json', 'utf8');
+        const parsedData = JSON.parse(storedData);
+        this.documents.push(...parsedData);
+        console.log("Loaded US Code data from storage");
+        return;
+      } catch (err) {
+        console.log("No stored US Code data found, processing from ZIP...");
+      }
+
       const zipFile = new zip(zipPath);
       const zipEntries = zipFile.getEntries();
+      const processedDocuments = [];
 
       for (const entry of zipEntries) {
         if (entry.entryName.endsWith(".xml")) {
           const content = entry.getData().toString("utf8");
           const result = xmlParser.parse(content);
-          console.log("got zip entry");
-          // Extract text content from XML structure
-          // Adjust this based on the actual XML structure
           const extractedText = JSON.stringify(result, null, 2);
           this.usCodeContent.push(extractedText);
+          
+          const embedding = await this.generateEmbedding(extractedText);
+          const document = {
+            content: extractedText,
+            url: "US Code",
+            embedding: embedding,
+          };
+          processedDocuments.push(document);
         }
       }
 
-      console.log("beginning embeggings");
-      // Generate embeddings for US Code content
-      for (const content of this.usCodeContent) {
-        const embedding = await this.generateEmbedding(content);
-        console.log("generated embedding");
-        this.documents.push({
-          content: content,
-          url: "US Code",
-          embedding: embedding,
-        });
-      }
+      // Store processed documents
+      this.documents.push(...processedDocuments);
+      await fs.writeFile('us_code_data.json', JSON.stringify(processedDocuments));
+      console.log("US Code data processed and stored");
     } catch (error) {
       console.error("Error processing US Code ZIP:", error);
     }
