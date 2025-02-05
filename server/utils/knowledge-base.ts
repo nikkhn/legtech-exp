@@ -1,8 +1,8 @@
-import * as cheerio from 'cheerio';
-import fetch from 'node-fetch';
-import OpenAI from 'openai';
-import fs from 'fs/promises';
-import path from 'path';
+import * as cheerio from "cheerio";
+import fetch from "node-fetch";
+import OpenAI from "openai";
+import fs from "fs/promises";
+import path from "path";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -18,50 +18,58 @@ export class KnowledgeBase {
   private documents: Document[] = [];
   private initialized = false;
   private visitedUrls = new Set<string>();
-  private baseUrl = 'https://artificialintelligenceact.eu';
-private usCodeContent: string[] = [];
+  private baseUrl = "https://artificialintelligenceact.eu";
+  private usCodeContent: string[] = [];
 
-private async processUSCodeZip(zipPath: string) {
-  const zip = require('adm-zip');
-  const xmlParser = require('fast-xml-parser');
+  private async processUSCodeZip(zipPath: string) {
+    const zip = require("adm-zip");
+    const xmlParser = require("fast-xml-parser");
 
-  try {
-    const zipFile = new zip(zipPath);
-    const zipEntries = zipFile.getEntries();
+    try {
+      const zipFile = new zip(zipPath);
+      const zipEntries = zipFile.getEntries();
 
-    for (const entry of zipEntries) {
-      if (entry.entryName.endsWith('.xml')) {
-        const content = entry.getData().toString('utf8');
-        const result = xmlParser.parse(content);
-        
-        // Extract text content from XML structure
-        // Adjust this based on the actual XML structure
-        const extractedText = JSON.stringify(result, null, 2);
-        this.usCodeContent.push(extractedText);
+      for (const entry of zipEntries) {
+        if (entry.entryName.endsWith(".xml")) {
+          const content = entry.getData().toString("utf8");
+          const result = xmlParser.parse(content);
+          console.log("got zip entry");
+          // Extract text content from XML structure
+          // Adjust this based on the actual XML structure
+          const extractedText = JSON.stringify(result, null, 2);
+          this.usCodeContent.push(extractedText);
+        }
       }
-    }
 
-    // Generate embeddings for US Code content
-    for (const content of this.usCodeContent) {
-      const embedding = await this.generateEmbedding(content);
-      this.documents.push({
-        content: content,
-        url: 'US Code',
-        embedding: embedding
-      });
+      console.log("beginning embeggings");
+      // Generate embeddings for US Code content
+      for (const content of this.usCodeContent) {
+        const embedding = await this.generateEmbedding(content);
+        console.log("generated embedding");
+        this.documents.push({
+          content: content,
+          url: "US Code",
+          embedding: embedding,
+        });
+      }
+    } catch (error) {
+      console.error("Error processing US Code ZIP:", error);
     }
-  } catch (error) {
-    console.error('Error processing US Code ZIP:', error);
   }
-}
 
   async initialize() {
     if (this.initialized) return;
 
     try {
-      await this.processUSCodeZip('attached_assets/xml_uscAll@118-250not159 2.zip');
+      await this.processUSCodeZip(
+        "attached_assets/xml_uscAll@118-250not159 2.zip",
+      );
+      console.log("processed US Code");
       // Try to load cached documents
-      const cached = await fs.readFile(path.join(process.cwd(), 'cached-knowledge.json'), 'utf-8');
+      const cached = await fs.readFile(
+        path.join(process.cwd(), "cached-knowledge.json"),
+        "utf-8",
+      );
       this.documents = JSON.parse(cached);
       this.initialized = true;
     } catch {
@@ -76,13 +84,13 @@ private async processUSCodeZip(zipPath: string) {
 
       // Cache the processed documents
       await fs.writeFile(
-        path.join(process.cwd(), 'cached-knowledge.json'),
-        JSON.stringify(this.documents)
+        path.join(process.cwd(), "cached-knowledge.json"),
+        JSON.stringify(this.documents),
       );
 
       this.initialized = true;
     } catch (error) {
-      console.error('Error processing knowledge base:', error);
+      console.error("Error processing knowledge base:", error);
       throw error;
     }
   }
@@ -98,9 +106,9 @@ private async processUSCodeZip(zipPath: string) {
       const $ = cheerio.load(html);
 
       // Extract main content text, removing scripts and styles
-      $('script').remove();
-      $('style').remove();
-      const rawText = $('body').text();
+      $("script").remove();
+      $("style").remove();
+      const rawText = $("body").text();
 
       // Split into chunks of roughly 1000 characters
       const chunks = this.chunkText(rawText.trim(), 1000);
@@ -111,16 +119,16 @@ private async processUSCodeZip(zipPath: string) {
         this.documents.push({
           content: chunk,
           url: url,
-          embedding: embedding
+          embedding: embedding,
         });
       }
 
       // Find all links on the page
-      const links = $('a')
-        .map((_, el) => $(el).attr('href'))
+      const links = $("a")
+        .map((_, el) => $(el).attr("href"))
         .get()
-        .filter(href => href && this.isValidUrl(href))
-        .map(href => this.resolveUrl(href, url));
+        .filter((href) => href && this.isValidUrl(href))
+        .map((href) => this.resolveUrl(href, url));
 
       // Recursively crawl each link
       for (const link of links) {
@@ -138,16 +146,16 @@ private async processUSCodeZip(zipPath: string) {
 
     // Ignore anchors, external links, and non-http(s) protocols
     return (
-      !href.startsWith('#') &&
-      !href.startsWith('mailto:') &&
-      !href.startsWith('tel:') &&
-      (href.startsWith('/') || href.startsWith(this.baseUrl))
+      !href.startsWith("#") &&
+      !href.startsWith("mailto:") &&
+      !href.startsWith("tel:") &&
+      (href.startsWith("/") || href.startsWith(this.baseUrl))
     );
   }
 
   private resolveUrl(href: string, baseUrl: string): string {
-    if (href.startsWith('http')) return href;
-    if (href.startsWith('/')) return `${this.baseUrl}${href}`;
+    if (href.startsWith("http")) return href;
+    if (href.startsWith("/")) return `${this.baseUrl}${href}`;
     return new URL(href, baseUrl).toString();
   }
 
@@ -159,7 +167,7 @@ private async processUSCodeZip(zipPath: string) {
 
     for (const word of words) {
       if (currentLength + word.length > chunkSize) {
-        chunks.push(currentChunk.join(' '));
+        chunks.push(currentChunk.join(" "));
         currentChunk = [];
         currentLength = 0;
       }
@@ -168,7 +176,7 @@ private async processUSCodeZip(zipPath: string) {
     }
 
     if (currentChunk.length > 0) {
-      chunks.push(currentChunk.join(' '));
+      chunks.push(currentChunk.join(" "));
     }
 
     return chunks;
@@ -183,7 +191,10 @@ private async processUSCodeZip(zipPath: string) {
     return response.data[0].embedding;
   }
 
-  async getRelevantContext(query: string, maxResults: number = 3): Promise<string> {
+  async getRelevantContext(
+    query: string,
+    maxResults: number = 3,
+  ): Promise<string> {
     await this.initialize();
 
     const queryEmbedding = await this.generateEmbedding(query);
@@ -192,20 +203,27 @@ private async processUSCodeZip(zipPath: string) {
     const similarities = this.documents.map((doc) => ({
       content: doc.content,
       url: doc.url,
-      similarity: this.cosineSimilarity(queryEmbedding, doc.embedding)
+      similarity: this.cosineSimilarity(queryEmbedding, doc.embedding),
     }));
 
     // Sort by similarity and get top results
     similarities.sort((a, b) => b.similarity - a.similarity);
     const topResults = similarities.slice(0, maxResults);
 
-    return topResults.map(r => `From ${r.url}:\n${r.content}`).join('\n\n');
+    return topResults.map((r) => `From ${r.url}:\n${r.content}`).join("\n\n");
   }
 
   private cosineSimilarity(embedding1: number[], embedding2: number[]): number {
-    const dotProduct = embedding1.reduce((acc, val, i) => acc + val * embedding2[i], 0);
-    const norm1 = Math.sqrt(embedding1.reduce((acc, val) => acc + val * val, 0));
-    const norm2 = Math.sqrt(embedding2.reduce((acc, val) => acc + val * val, 0));
+    const dotProduct = embedding1.reduce(
+      (acc, val, i) => acc + val * embedding2[i],
+      0,
+    );
+    const norm1 = Math.sqrt(
+      embedding1.reduce((acc, val) => acc + val * val, 0),
+    );
+    const norm2 = Math.sqrt(
+      embedding2.reduce((acc, val) => acc + val * val, 0),
+    );
     return dotProduct / (norm1 * norm2);
   }
 }
